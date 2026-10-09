@@ -15,8 +15,25 @@ mkdir -p "$BUILD_DIR" "$DIST_DIR"
 rm -rf "$APP_BUNDLE" "$STAGING"
 mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources" "$STAGING"
 
+# Apple introduced the Private Cloud Compute model API in a later SDK than the
+# macOS 26 deployment SDK. Enable its code only when the selected SDK exposes it.
+PCC_PROBE="$BUILD_DIR/pcc-api-probe.swift"
+PCC_FLAGS=()
+cat > "$PCC_PROBE" <<'SWIFT'
+import FoundationModels
+@available(macOS 27.0, *)
+func probePrivateCloudComputeAPI() {
+  let model = PrivateCloudComputeLanguageModel()
+  _ = model.isAvailable
+}
+SWIFT
+if /usr/bin/swiftc -target "${ARCH}-apple-macosx${MIN_MACOS}" -framework FoundationModels -typecheck "$PCC_PROBE" >/dev/null 2>&1; then
+  PCC_FLAGS=(-D EVERYMAC_HAS_PCC)
+fi
+
 /usr/bin/swiftc -parse-as-library -warnings-as-errors -O \
   -target "${ARCH}-apple-macosx${MIN_MACOS}" \
+  ${PCC_FLAGS[@]:-} \
   -framework SwiftUI -framework AppKit -framework IOKit \
   -framework CoreGraphics -framework Charts -framework FoundationModels \
   "$APP_ROOT/Sources/EveryMacTool.swift" \

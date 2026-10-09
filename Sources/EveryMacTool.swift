@@ -546,7 +546,7 @@ struct DashboardView: View {
                 // If Apple's on-device model fails, try Apple's Private Cloud Compute model where supported.
             }
         }
-#if compiler(>=6.3)
+#if EVERYMAC_HAS_PCC
         if #available(macOS 27.0, *), PrivateCloudComputeLanguageModel.isAvailable {
             do {
                 let session = LanguageModelSession(model: PrivateCloudComputeLanguageModel(), instructions: Self.summaryInstructions)
