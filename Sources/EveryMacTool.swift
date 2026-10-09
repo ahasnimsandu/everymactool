@@ -431,7 +431,7 @@ struct DashboardView: View {
             Image(systemName: "bolt.horizontal.circle.fill").font(.system(size: 25)).symbolRenderingMode(.palette).foregroundStyle(statusColor(for: magsafeStatusColor), .white.opacity(0.8))
             VStack(alignment: .leading, spacing: 2) {
                 Text("EveryMacTool").font(.system(size: 17, weight: .bold, design: .rounded))
-                Text("LIVE SYSTEM INTELLIGENCE").font(.system(size: 9, weight: .bold, design: .rounded)).tracking(1.4).foregroundStyle(.secondary)
+                Text("DEVELOPED BY AHAS NIMSANDU").font(.system(size: 9, weight: .bold, design: .rounded)).tracking(1.0).foregroundStyle(.secondary)
             }
             Spacer()
             Circle().fill(.green).frame(width: 7, height: 7).shadow(color: .green.opacity(0.7), radius: 5).symbolEffect(.pulse, options: .repeating)
