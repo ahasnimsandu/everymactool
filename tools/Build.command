@@ -9,7 +9,7 @@ APP_BUNDLE="$BUILD_DIR/EveryMacTool.app"
 CONTENTS="$APP_BUNDLE/Contents"
 STAGING="$BUILD_DIR/dmg-root"
 DIST_DIR="$APP_ROOT/dist"
-DMG_PATH="$DIST_DIR/EveryMacTool-1.0.0-macOS-${ARCH}.dmg"
+DMG_PATH="$DIST_DIR/EveryMacTool-1.0.1-macOS-${ARCH}.dmg"
 
 mkdir -p "$BUILD_DIR" "$DIST_DIR"
 rm -rf "$APP_BUNDLE" "$STAGING"

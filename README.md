@@ -2,6 +2,8 @@
 
 A native macOS menu bar dashboard for battery and charging telemetry, USB devices, display modes, and network traffic. Developed by **Ahas Nimsandu**.
 
+Current packaged release: **1.0.1** (macOS 26+, Apple silicon).
+
 ## Features
 
 - Live battery level, charge/discharge watts, adapter input, system load, and USB Power Delivery profiles.
