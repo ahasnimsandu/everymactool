@@ -13,9 +13,9 @@ context.saveGState()
 context.addPath(tile)
 context.clip()
 let colors = [
-    NSColor(calibratedRed: 0.035, green: 0.075, blue: 0.16, alpha: 1).cgColor,
-    NSColor(calibratedRed: 0.025, green: 0.24, blue: 0.33, alpha: 1).cgColor,
-    NSColor(calibratedRed: 0.02, green: 0.105, blue: 0.19, alpha: 1).cgColor
+    NSColor(calibratedRed: 0.16, green: 0.17, blue: 0.18, alpha: 1).cgColor,
+    NSColor(calibratedRed: 0.25, green: 0.26, blue: 0.27, alpha: 1).cgColor,
+    NSColor(calibratedRed: 0.13, green: 0.14, blue: 0.15, alpha: 1).cgColor
 ] as CFArray
 let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 0.52, 1])!
 context.drawLinearGradient(gradient, start: CGPoint(x: 120, y: 950), end: CGPoint(x: 900, y: 60), options: [])
@@ -43,13 +43,17 @@ bolt.addLine(to: CGPoint(x: 590, y: 814))
 bolt.addQuadCurve(to: CGPoint(x: 555, y: 842), control: CGPoint(x: 589, y: 848))
 bolt.closeSubpath()
 context.saveGState()
-context.setShadow(offset: .zero, blur: 46, color: NSColor.systemCyan.withAlphaComponent(0.58).cgColor)
+context.setShadow(offset: .zero, blur: 46, color: NSColor.white.withAlphaComponent(0.5).cgColor)
 context.addPath(bolt)
-context.setFillColor(NSColor(calibratedRed: 0.48, green: 0.94, blue: 1, alpha: 1).cgColor)
+context.setFillColor(NSColor(calibratedRed: 0.82, green: 0.84, blue: 0.86, alpha: 1).cgColor)
 context.fillPath()
 context.restoreGState()
 
-let portColors: [NSColor] = [.systemCyan, .systemTeal, .systemGreen]
+let portColors: [NSColor] = [
+    NSColor(calibratedWhite: 0.88, alpha: 1),
+    NSColor(calibratedWhite: 0.70, alpha: 1),
+    NSColor(calibratedWhite: 0.52, alpha: 1)
+]
 for (index, color) in portColors.enumerated() {
     let x = CGFloat(390 + index * 122)
     let rect = CGRect(x: x, y: 111, width: 62, height: 18)

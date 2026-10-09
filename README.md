@@ -10,7 +10,7 @@ A native macOS menu bar dashboard for battery and charging telemetry, USB device
 - USB device discovery, display resolution and refresh, per-interface network throughput, and history charts.
 - Simple and Pro interface modes, expandable See more analysis, adjustable liquid-glass intensity, and a performance mode.
 - Refresh intervals from 0.25 to 10 seconds for power/network data, plus a recent power-event log. USB/display inventory is scanned less often to keep fast updates light.
-- A shortcut to Apple Battery settings for the system charge limit and a customizable in-app MagSafe status glow.
+- A shortcut to Apple Battery settings for the system charge limit and a customizable in-app MagSafe status glow, now with an ash-gray default accent and icon.
 - A one-tap quick Mac read using Apple's on-device Foundation Models (Apple Intelligence), with a local telemetry-only fallback. The build probes the selected SDK and includes Apple's Private Cloud Compute fallback only when that API is present and Apple reports the model available on macOS 27+.
 - Menu bar popover with native macOS transitions and liquid glass on macOS 26+.
 

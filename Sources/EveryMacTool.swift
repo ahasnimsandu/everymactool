@@ -10,6 +10,8 @@ import Charts
 import FoundationModels
 #endif
 
+let ash = Color(red: 0.69, green: 0.71, blue: 0.74)
+
 @main
 struct EveryMacToolApp: App {
     @StateObject private var monitor = SystemMonitor()
@@ -20,6 +22,7 @@ struct EveryMacToolApp: App {
     var body: some Scene {
         MenuBarExtra {
             DashboardView(monitor: monitor)
+                .tint(ash)
                 .frame(width: 560, height: 680)
                 .background(.ultraThinMaterial)
         } label: {
@@ -170,7 +173,7 @@ final class SystemMonitor: ObservableObject {
             }
             if current.charge < 100 && snapshot.charge >= 100 { addEvent("Battery reached full charge", icon: "checkmark.circle.fill", tint: .green) }
         } else {
-            addEvent("Live monitoring started", icon: "waveform.path", tint: .cyan)
+            addEvent("Live monitoring started", icon: "waveform.path", tint: ash)
             hasInitialSample = true
         }
         current = snapshot
@@ -345,7 +348,7 @@ func formatInterval(_ seconds: Double) -> String {
 func statusColor(for value: String) -> Color {
     switch value {
     case "green": .green
-    case "cyan": .cyan
+    case "cyan", "ash": ash
     case "violet": .purple
     default: .orange
     }
@@ -391,8 +394,8 @@ struct DashboardView: View {
                             Text(item.rawValue).font(.system(size: 10, weight: .medium))
                         }
                         .frame(maxWidth: .infinity).padding(.vertical, 10)
-                        .foregroundStyle(page == item ? Color.accentColor : .secondary)
-                        .background(page == item ? Color.accentColor.opacity(0.10) : .clear, in: RoundedRectangle(cornerRadius: 11))
+                        .foregroundStyle(page == item ? ash : .secondary)
+                        .background(page == item ? ash.opacity(0.10) : .clear, in: RoundedRectangle(cornerRadius: 11))
                     }.buttonStyle(.plain)
                 }
             }.padding(.horizontal, 14).padding(.vertical, 8)
@@ -444,13 +447,13 @@ struct DashboardView: View {
         VStack(spacing: 13) {
             HStack(spacing: 12) {
                 MetricCard(title: "BATTERY", value: "\(Int(monitor.current.charge))%", caption: monitor.current.charging ? "Charging" : "On battery", icon: "battery.75percent", tint: .green)
-                MetricCard(title: "CHARGING INPUT", value: "\(formatWatts(monitor.current.inputWatts)) W", caption: monitor.current.adapterWatts > 0 ? "Adapter rated \(Int(monitor.current.adapterWatts)) W" : "No adapter", icon: "arrow.down.to.line", tint: .cyan)
+                MetricCard(title: "CHARGING INPUT", value: "\(formatWatts(monitor.current.inputWatts)) W", caption: monitor.current.adapterWatts > 0 ? "Adapter rated \(Int(monitor.current.adapterWatts)) W" : "No adapter", icon: "arrow.down.to.line", tint: ash)
                 MetricCard(title: "SYSTEM LOAD", value: "\(formatWatts(monitor.current.systemLoad)) W", caption: "Live system draw", icon: "cpu", tint: .orange)
             }
             SectionCard(title: "Power balance", subtitle: "Live energy flow · updated at your selected interval", icon: "bolt.fill") {
                 HStack(spacing: 16) {
                     Gauge(value: min(1, monitor.current.inputWatts / max(monitor.current.adapterWatts, 1))) { Text("Adapter") } currentValueLabel: { Text("\(formatWatts(monitor.current.inputWatts)) W") }
-                        .gaugeStyle(.accessoryCircular).tint(.cyan).frame(width: 90, height: 90)
+                        .gaugeStyle(.accessoryCircular).tint(ash).frame(width: 90, height: 90)
                     VStack(alignment: .leading, spacing: 8) {
                         Label("\(monitor.current.adapterName)", systemImage: "powerplug.fill").font(.system(size: 13, weight: .semibold)).lineLimit(1)
                         Text(monitor.current.activeProfile).font(.system(size: 12, design: .monospaced)).foregroundStyle(.secondary)
@@ -471,7 +474,7 @@ struct DashboardView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(.cyan)
+                .tint(ash)
                 .disabled(writingSummary)
                 Text("Uses Apple's on-device model when available; otherwise a private local summary. No telemetry is uploaded.")
                     .font(.system(size: 10)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -479,8 +482,8 @@ struct DashboardView: View {
             if showCharts { SectionCard(title: "Energy trend", subtitle: "Input, system load and battery power", icon: "chart.xyaxis.line") {
                 Chart {
                     ForEach(monitor.history) { item in
-                        AreaMark(x: .value("Time", item.time), y: .value("Watts", item.input), series: .value("Series", "Adapter input")).foregroundStyle(.cyan.opacity(0.12))
-                        LineMark(x: .value("Time", item.time), y: .value("Watts", item.input), series: .value("Series", "Adapter input")).foregroundStyle(.cyan).lineStyle(StrokeStyle(lineWidth: 2))
+                        AreaMark(x: .value("Time", item.time), y: .value("Watts", item.input), series: .value("Series", "Adapter input")).foregroundStyle(ash.opacity(0.12))
+                        LineMark(x: .value("Time", item.time), y: .value("Watts", item.input), series: .value("Series", "Adapter input")).foregroundStyle(ash).lineStyle(StrokeStyle(lineWidth: 2))
                         LineMark(x: .value("Time", item.time), y: .value("Watts", item.load), series: .value("Series", "System load")).foregroundStyle(.orange).lineStyle(StrokeStyle(lineWidth: 2))
                     }
                 }.chartLegend(.visible).chartYAxisLabel("W").frame(height: 150)
@@ -490,7 +493,7 @@ struct DashboardView: View {
                 MetricCard(title: "BATTERY HEALTH", value: "\(Int(monitor.current.health))%", caption: "\(monitor.current.cycles) cycles", icon: "heart.fill", tint: .pink)
             }
             HStack(spacing: 12) {
-                MetricCard(title: "NETWORK IN", value: formatRate(monitor.current.totalRx), caption: "Aggregate receive", icon: "arrow.down", tint: .blue)
+                MetricCard(title: "NETWORK IN", value: formatRate(monitor.current.totalRx), caption: "Aggregate receive", icon: "arrow.down", tint: ash)
                 MetricCard(title: "NETWORK OUT", value: formatRate(monitor.current.totalTx), caption: "Aggregate send", icon: "arrow.up", tint: .purple)
             }
             SectionCard(title: "Power analysis", subtitle: "Adaptive estimates from live battery telemetry", icon: "sparkles") {
@@ -502,7 +505,7 @@ struct DashboardView: View {
                     } label: {
                         Label(showMoreAnalysis ? "See less" : "See more", systemImage: showMoreAnalysis ? "chevron.up" : "chevron.down")
                             .font(.system(size: 11, weight: .semibold))
-                    }.buttonStyle(.plain).foregroundStyle(.cyan)
+                    }.buttonStyle(.plain).foregroundStyle(ash)
                 }
                 if showMoreAnalysis {
                     Divider().opacity(0.45)
@@ -510,7 +513,7 @@ struct DashboardView: View {
                         DataRow(name: "Charge / drain trend", value: monitor.chargingTrend)
                         DataRow(name: "macOS time estimate", value: monitor.current.batteryTime)
                         DataRow(name: "Battery transfer", value: "\(formatWatts(abs(monitor.current.batteryWatts))) W", accent: monitor.current.charging ? .green : .orange)
-                        DataRow(name: "Adapter power headroom", value: "\(formatWatts(monitor.current.inputWatts - monitor.current.systemLoad)) W", accent: .cyan)
+                        DataRow(name: "Adapter power headroom", value: "\(formatWatts(monitor.current.inputWatts - monitor.current.systemLoad)) W", accent: ash)
                         DataRow(name: "Adapter utilization", value: monitor.current.adapterWatts > 0 ? "\(Int((monitor.current.inputWatts / monitor.current.adapterWatts * 100).rounded()))%" : "Not connected")
                         DataRow(name: "Energy received this session", value: String(format: "%.3f Wh", monitor.sessionInputWh))
                         if proMode {
@@ -592,7 +595,7 @@ struct DashboardView: View {
             if showCharts { SectionCard(title: "Power Monitor", subtitle: "Measured telemetry from the Mac power controller", icon: "waveform.path") {
                 Chart {
                     ForEach(monitor.history) { item in
-                        LineMark(x: .value("Time", item.time), y: .value("Input", item.input), series: .value("Power", "Adapter input")).foregroundStyle(.cyan)
+                        LineMark(x: .value("Time", item.time), y: .value("Input", item.input), series: .value("Power", "Adapter input")).foregroundStyle(ash)
                         LineMark(x: .value("Time", item.time), y: .value("Load", item.load), series: .value("Power", "System load")).foregroundStyle(.orange)
                         LineMark(x: .value("Time", item.time), y: .value("Battery", item.battery), series: .value("Power", "Battery transfer")).foregroundStyle(.green)
                     }
@@ -602,7 +605,7 @@ struct DashboardView: View {
                 DataRow(name: "Adapter input", value: "\(formatWatts(monitor.current.inputWatts)) W")
                 DataRow(name: "System load", value: "\(formatWatts(monitor.current.systemLoad)) W")
                 DataRow(name: monitor.current.charging ? "Battery charging rate" : "Battery discharge rate", value: "\(formatWatts(abs(monitor.current.batteryWatts))) W", accent: .green)
-                DataRow(name: "Adapter headroom", value: "\(formatWatts(monitor.current.inputWatts - monitor.current.systemLoad)) W", accent: .cyan)
+                DataRow(name: "Adapter headroom", value: "\(formatWatts(monitor.current.inputWatts - monitor.current.systemLoad)) W", accent: ash)
                 Text("Input power is measured at the system power controller. It is not a per-port or per-device meter.").font(.system(size: 10)).foregroundStyle(.secondary).padding(.top, 5)
             }
             SectionCard(title: "Adaptive battery forecast", subtitle: "Local trend smoothing · private and offline", icon: "sparkles") {
@@ -617,7 +620,7 @@ struct DashboardView: View {
                     if let url = URL(string: "x-apple.systempreferences:com.apple.Battery-Settings.extension") { NSWorkspace.shared.open(url) }
                 } label: {
                     Label("Open Battery Settings", systemImage: "arrow.up.right.square").frame(maxWidth: .infinity)
-                }.buttonStyle(.borderedProminent).tint(.cyan)
+                }.buttonStyle(.borderedProminent).tint(ash)
                 Text("EveryMacTool opens Apple's control panel; it does not override the system's charging policy.").font(.system(size: 10)).foregroundStyle(.secondary)
             }
             SectionCard(title: "Battery health", subtitle: "Pack-level diagnostics", icon: "battery.100") {
@@ -627,7 +630,7 @@ struct DashboardView: View {
                 DataRow(name: "Estimated time", value: monitor.current.batteryTime)
             }
             SectionCard(title: "Session energy", subtitle: "Accumulated since EveryMacTool opened", icon: "chart.bar.xaxis") {
-                DataRow(name: "Adapter energy received", value: String(format: "%.3f Wh", monitor.sessionInputWh), accent: .cyan)
+                DataRow(name: "Adapter energy received", value: String(format: "%.3f Wh", monitor.sessionInputWh), accent: ash)
                 DataRow(name: "System energy used", value: String(format: "%.3f Wh", monitor.sessionLoadWh), accent: .orange)
                 DataRow(name: "Battery energy change", value: String(format: "%+.3f Wh", monitor.sessionBatteryWh), accent: monitor.sessionBatteryWh >= 0 ? .green : .red)
                 Text("Session totals reset when you quit the app; they are estimates integrated from the Mac's live power telemetry.").font(.system(size: 10)).foregroundStyle(.secondary)
@@ -660,7 +663,7 @@ struct DashboardView: View {
                 if monitor.current.peripherals.isEmpty { EmptyState(icon: "cable.connector.slash", title: "Nothing connected", detail: "Plug in a USB device to see its identity and link details.") }
                 ForEach(monitor.current.peripherals) { item in
                     VStack(alignment: .leading, spacing: 6) {
-                        HStack { Image(systemName: "externaldrive.connected.to.line.below").foregroundStyle(.cyan); Text(item.name).font(.system(size: 13, weight: .semibold)); Spacer(); Text("LIVE").font(.system(size: 9, weight: .bold)).foregroundStyle(.green) }
+                        HStack { Image(systemName: "externaldrive.connected.to.line.below").foregroundStyle(ash); Text(item.name).font(.system(size: 13, weight: .semibold)); Spacer(); Text("LIVE").font(.system(size: 9, weight: .bold)).foregroundStyle(.green) }
                         if proMode {
                             DataRow(name: "Vendor", value: item.vendor)
                             DataRow(name: "Product", value: item.product)
@@ -676,7 +679,7 @@ struct DashboardView: View {
                 if monitor.current.displays.isEmpty { EmptyState(icon: "display", title: "No display data", detail: "Display mode information is unavailable right now.") }
                 ForEach(monitor.current.displays) { display in
                     VStack(spacing: 6) {
-                        HStack { Text(display.name).font(.system(size: 13, weight: .semibold)); if display.isMain { Text("MAIN").font(.system(size: 9, weight: .bold)).foregroundStyle(.cyan) }; Spacer() }
+                        HStack { Text(display.name).font(.system(size: 13, weight: .semibold)); if display.isMain { Text("MAIN").font(.system(size: 9, weight: .bold)).foregroundStyle(ash) }; Spacer() }
                         DataRow(name: "Resolution", value: display.resolution)
                         DataRow(name: "Refresh rate", value: display.refresh)
                     }.padding(.vertical, 4)
@@ -694,15 +697,15 @@ struct DashboardView: View {
     private var networkView: some View {
         VStack(spacing: 13) {
             HStack(spacing: 12) {
-                MetricCard(title: "TOTAL DOWNLOAD", value: formatRate(monitor.current.totalRx), caption: "All interfaces", icon: "arrow.down.circle.fill", tint: .cyan)
+                MetricCard(title: "TOTAL DOWNLOAD", value: formatRate(monitor.current.totalRx), caption: "All interfaces", icon: "arrow.down.circle.fill", tint: ash)
                 MetricCard(title: "TOTAL UPLOAD", value: formatRate(monitor.current.totalTx), caption: "All interfaces", icon: "arrow.up.circle.fill", tint: .purple)
             }
             if proMode { SectionCard(title: "Live interface traffic", subtitle: "Bytes per second · sampled at your selected interval", icon: "arrow.left.arrow.right") {
                 if monitor.current.network.isEmpty { EmptyState(icon: "network", title: "Waiting for interfaces", detail: "Network counters will appear after the first sample.") }
                 ForEach(visibleNetwork) { item in
                     VStack(spacing: 5) {
-                        HStack { Image(systemName: "point.3.connected.trianglepath.dotted").foregroundStyle(.cyan); Text(item.name).font(.system(size: 12, weight: .semibold)); Spacer() }
-                        DataRow(name: "↓ Received", value: formatRate(item.received), accent: .cyan)
+                        HStack { Image(systemName: "point.3.connected.trianglepath.dotted").foregroundStyle(ash); Text(item.name).font(.system(size: 12, weight: .semibold)); Spacer() }
+                        DataRow(name: "↓ Received", value: formatRate(item.received), accent: ash)
                         DataRow(name: "↑ Sent", value: formatRate(item.sent), accent: .purple)
                     }.padding(.vertical, 5)
                 }
@@ -710,7 +713,7 @@ struct DashboardView: View {
             if showCharts { SectionCard(title: "Network activity", subtitle: "Recent aggregate throughput · upload and download", icon: "chart.xyaxis.line") {
                 Chart {
                     ForEach(monitor.history) { item in
-                        LineMark(x: .value("Time", item.time), y: .value("Rate", item.rx), series: .value("Direction", "Download")).foregroundStyle(.cyan)
+                        LineMark(x: .value("Time", item.time), y: .value("Rate", item.rx), series: .value("Direction", "Download")).foregroundStyle(ash)
                         LineMark(x: .value("Time", item.time), y: .value("Rate", item.tx), series: .value("Direction", "Upload")).foregroundStyle(.purple)
                     }
                 }.chartLegend(.visible).frame(height: 150)
@@ -754,7 +757,7 @@ struct DashboardView: View {
         VStack(spacing: 13) {
             SectionCard(title: "Dashboard", subtitle: "Tune the menu bar panel", icon: "slider.horizontal.3") {
                 VStack(alignment: .leading, spacing: 7) {
-                    HStack { Text("Interface mode").font(.system(size: 12, weight: .semibold)); Spacer(); Text(proMode ? "PRO" : "SIMPLE").font(.system(size: 9, weight: .bold, design: .rounded)).tracking(1).foregroundStyle(proMode ? .cyan : .secondary) }
+                    HStack { Text("Interface mode").font(.system(size: 12, weight: .semibold)); Spacer(); Text(proMode ? "PRO" : "SIMPLE").font(.system(size: 9, weight: .bold, design: .rounded)).tracking(1).foregroundStyle(proMode ? ash : .secondary) }
                     Picker("Interface mode", selection: $proMode) {
                         Text("Simple").tag(false)
                         Text("Pro").tag(true)
@@ -779,22 +782,22 @@ struct DashboardView: View {
                 } label: {
                     Label("Optimize dashboard now", systemImage: "wand.and.stars")
                         .frame(maxWidth: .infinity)
-                }.buttonStyle(.borderedProminent).tint(.cyan)
+                }.buttonStyle(.borderedProminent).tint(ash)
                 Text(performanceMode ? "Using a lighter 4-second sampling cadence. This changes EveryMacTool only." : "Reduces refresh work and chart redraws if the panel feels slow. It does not alter macOS power or background apps.").font(.system(size: 10)).foregroundStyle(.secondary)
             }
             SectionCard(title: "Liquid glass", subtitle: "Adjust the panel's frosted translucency", icon: "drop.halffull") {
                 HStack { Text("Clearer").font(.system(size: 10)).foregroundStyle(.secondary); Slider(value: $glassIntensity, in: 0.25...1.0).accessibilityLabel("Liquid glass intensity"); Text("More frosted").font(.system(size: 10)).foregroundStyle(.secondary) }
                 ZStack {
-                    RoundedRectangle(cornerRadius: 13).fill(.cyan.opacity(0.14))
+                    RoundedRectangle(cornerRadius: 13).fill(ash.opacity(0.14))
                     RoundedRectangle(cornerRadius: 13).fill(.ultraThinMaterial.opacity(glassIntensity))
-                    HStack { Image(systemName: "sparkles").foregroundStyle(.cyan); Text("Glass preview").font(.system(size: 11, weight: .semibold)); Spacer(); Text("\(Int(glassIntensity * 100))%").font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary) }.padding(.horizontal, 12)
+                    HStack { Image(systemName: "sparkles").foregroundStyle(ash); Text("Glass preview").font(.system(size: 11, weight: .semibold)); Spacer(); Text("\(Int(glassIntensity * 100))%").font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary) }.padding(.horizontal, 12)
                 }.frame(height: 42).clipShape(RoundedRectangle(cornerRadius: 13)).overlay(RoundedRectangle(cornerRadius: 13).stroke(.white.opacity(0.12), lineWidth: 1))
             }
             SectionCard(title: "MagSafe indicator", subtitle: "Choose EveryMacTool's status glow", icon: "cable.connector") {
                 HStack(spacing: 14) {
                     colorChoice("amber", label: "Amber")
                     colorChoice("green", label: "Green")
-                    colorChoice("cyan", label: "Cyan")
+                    colorChoice("ash", label: "Ash")
                     colorChoice("violet", label: "Violet")
                     Spacer()
                     Image(systemName: "bolt.horizontal.circle.fill").font(.system(size: 25)).symbolRenderingMode(.palette).foregroundStyle(statusColor(for: magsafeStatusColor), .white.opacity(0.8))
@@ -812,7 +815,7 @@ struct DashboardView: View {
             }
             SectionCard(title: "About measurements", subtitle: "Privacy and accuracy", icon: "checkmark.shield") {
                 Text("EveryMacTool reads local macOS power, USB registry, display and network counters. It sends no telemetry. Some port, cable-chip and accessory-power details are not published by macOS. Developed by Ahas Nimsandu.").font(.system(size: 11)).foregroundStyle(.secondary)
-                Button("Refresh now") { monitor.refresh() }.buttonStyle(.borderedProminent).tint(.cyan)
+                Button("Refresh now") { monitor.refresh() }.buttonStyle(.borderedProminent).tint(ash)
             }
         }
     }
@@ -856,7 +859,7 @@ struct SectionCard<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 9) {
-                Image(systemName: icon).font(.system(size: 14, weight: .semibold)).foregroundStyle(.cyan).frame(width: 28, height: 28).background(.cyan.opacity(0.12), in: RoundedRectangle(cornerRadius: 9))
+                Image(systemName: icon).font(.system(size: 14, weight: .semibold)).foregroundStyle(ash).frame(width: 28, height: 28).background(ash.opacity(0.12), in: RoundedRectangle(cornerRadius: 9))
                 VStack(alignment: .leading, spacing: 2) { Text(title).font(.system(size: 14, weight: .bold, design: .rounded)); Text(subtitle).font(.system(size: 10)).foregroundStyle(.secondary) }
                 Spacer()
             }
@@ -898,7 +901,7 @@ struct GlassPanel: ViewModifier {
     @ViewBuilder
     func body(content: Content) -> some View {
         if #available(macOS 26.0, *) {
-            content.glassEffect(.regular.tint(.cyan.opacity(intensity * 0.14)), in: .rect(cornerRadius: 23)).opacity(0.88 + intensity * 0.12)
+            content.glassEffect(.regular.tint(ash.opacity(intensity * 0.14)), in: .rect(cornerRadius: 23)).opacity(0.88 + intensity * 0.12)
         } else {
             content.background(.ultraThinMaterial.opacity(intensity), in: RoundedRectangle(cornerRadius: 23, style: .continuous))
         }
