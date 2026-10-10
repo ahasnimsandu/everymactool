@@ -1,0 +1,32 @@
+name: Build and publish macOS release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and verify app and installer
+        run: ./tools/Build.command
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          VERSION="${RELEASE_TAG#v}"
+          APP_VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Resources/Info.plist)
+          if [[ "$VERSION" != "$APP_VERSION" ]]; then
+            echo "Release tag $RELEASE_TAG does not match app version $APP_VERSION" >&2
+            exit 1
+          fi
+          gh release create "$RELEASE_TAG" \
+            "dist/EveryMacTool-${VERSION}-macOS-arm64.dmg" \
+            --title "EveryMacTool ${VERSION}" \
+            --notes-file "release-notes/${VERSION}.md"

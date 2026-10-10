@@ -9,9 +9,11 @@ APP_BUNDLE="$BUILD_DIR/EveryMacTool.app"
 CONTENTS="$APP_BUNDLE/Contents"
 STAGING="$BUILD_DIR/dmg-root"
 DIST_DIR="$APP_ROOT/dist"
-DMG_PATH="$DIST_DIR/EveryMacTool-1.0.2-macOS-${ARCH}.dmg"
+VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_ROOT/Resources/Info.plist")
+DMG_PATH="$DIST_DIR/EveryMacTool-${VERSION}-macOS-${ARCH}.dmg"
 
 mkdir -p "$BUILD_DIR" "$DIST_DIR"
+touch "$BUILD_DIR/.metadata_never_index"
 rm -rf "$APP_BUNDLE" "$STAGING"
 mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources" "$STAGING"
 

@@ -1,5 +1,12 @@
 # Release notes
 
+## 1.0.3 — 2026-10-10
+
+- Poll power data every 0.25 seconds and update the menu-bar number with smooth digit transitions. macOS hardware telemetry may still publish at a slower cadence.
+- Change energy history to a 90-second, twice-per-second chart with smooth curves, visible adapter/load/battery series, and a live battery-heavy-use alert.
+- Identify Apple silicon and its performance/efficiency CPU-core layout. Show measured whole-Mac watts and clearly distinguish that from chip-only power, which macOS does not expose to regular apps.
+- Add the v1.0.3 release workflow so each matching version tag builds and publishes its DMG using the repository's GitHub Actions token.
+
 ## 1.0.2 — 2026-10-10
 
 - Show Mac system power draw in the menu bar with one decimal place.

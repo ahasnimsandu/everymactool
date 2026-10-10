@@ -12,6 +12,42 @@ import FoundationModels
 
 let ash = Color(red: 0.69, green: 0.71, blue: 0.74)
 
+struct ChipProfile {
+    let name: String
+    let model: String
+    let performanceCores: Int
+    let efficiencyCores: Int
+
+    var coreSummary: String {
+        let total = performanceCores + efficiencyCores
+        guard total > 0 else { return "CPU core layout unavailable" }
+        return "\(total) CPU cores · \(performanceCores) performance + \(efficiencyCores) efficiency"
+    }
+
+    static let current: ChipProfile = {
+        func string(_ key: String) -> String {
+            var value = [CChar](repeating: 0, count: 128)
+            var size = value.count
+            let result = value.withUnsafeMutableBufferPointer { buffer in
+                sysctlbyname(key, buffer.baseAddress, &size, nil, 0)
+            }
+            return result == 0 ? String(cString: value) : ""
+        }
+        func integer(_ key: String) -> Int {
+            var value: Int32 = 0
+            var size = MemoryLayout<Int32>.size
+            return sysctlbyname(key, &value, &size, nil, 0) == 0 ? Int(value) : 0
+        }
+        let machine = string("machdep.cpu.brand_string")
+        return ChipProfile(
+            name: machine.isEmpty ? "Mac processor" : machine,
+            model: string("hw.model"),
+            performanceCores: integer("hw.perflevel0.physicalcpu"),
+            efficiencyCores: integer("hw.perflevel1.physicalcpu")
+        )
+    }()
+}
+
 @main
 struct EveryMacToolApp: App {
     @StateObject private var monitor = SystemMonitor()
@@ -31,6 +67,9 @@ struct EveryMacToolApp: App {
                 if showWatts {
                     Text(monitor.current.menuBarPowerLabel)
                         .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
+                        .contentTransition(.numericText())
+                        .animation(.linear(duration: 0.12), value: monitor.current.menuBarPowerLabel)
                 }
             }
         }
@@ -107,6 +146,7 @@ struct Snapshot {
     var totalRx = 0.0
     var totalTx = 0.0
     var updated = Date()
+    var chip = ChipProfile.current
 
     var hasExternalPower: Bool { adapterWatts > 0 || inputWatts > 0.1 || (charging && !adapterName.isEmpty && adapterName != "No adapter detected") }
     var adapterKind: String {
@@ -123,6 +163,7 @@ struct Snapshot {
     var menuBarPowerLabel: String {
         systemLoad > 0 ? "\(formatWatts(systemLoad))W" : "—W"
     }
+    var batteryDrawWatts: Double { max(systemLoad, abs(batteryWatts)) }
 }
 
 @MainActor
@@ -135,7 +176,9 @@ final class SystemMonitor: ObservableObject {
     @Published var sessionBatteryWh = 0.0
     @Published var events: [SystemEvent] = []
     @Published var performanceMode = false
+    @Published var highBatteryLoadMessage: String?
     private var timer: Timer?
+    private var highBatteryLoadSince: Date?
     private var previousNetwork: [String: (UInt64, UInt64)] = [:]
     private var lastTick = Date()
     private var lastEnergyTick = Date()
@@ -145,16 +188,17 @@ final class SystemMonitor: ObservableObject {
 
     init() {
         refresh()
-        timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.refresh() }
-        }
+        setRefreshInterval(0.25)
     }
 
     func setRefreshInterval(_ seconds: Double) {
         timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: min(10, max(0.25, seconds)), repeats: true) { [weak self] _ in
+        let newTimer = Timer(timeInterval: min(10, max(0.25, seconds)), repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
         }
+        newTimer.tolerance = 0.04
+        RunLoop.main.add(newTimer, forMode: .common)
+        timer = newTimer
     }
 
     func refresh() {
@@ -193,14 +237,33 @@ final class SystemMonitor: ObservableObject {
             hasInitialSample = true
         }
         current = snapshot
+        updateBatteryLoadWarning(for: snapshot)
         let remain = snapshot.inputWatts - snapshot.systemLoad
         let balance = snapshot.charging ? "Charging · +\(formatWatts(max(0, snapshot.batteryWatts))) W" : (snapshot.charge > 0 ? "Battery · −\(formatWatts(abs(snapshot.batteryWatts))) W" : "Power source unavailable")
         status = "\(balance)  ·  Input \(formatWatts(snapshot.inputWatts)) W  ·  Load \(formatWatts(snapshot.systemLoad)) W  ·  Headroom \(formatWatts(remain)) W"
-        if Date().timeIntervalSince(lastHistorySample) >= 2 {
+        let chartSampleInterval = performanceMode ? 2.0 : 0.5
+        if Date().timeIntervalSince(lastHistorySample) >= chartSampleInterval {
             history.append(PowerReading(time: Date(), input: snapshot.inputWatts, load: snapshot.systemLoad, battery: abs(snapshot.batteryWatts), rx: snapshot.totalRx, tx: snapshot.totalTx))
             lastHistorySample = Date()
         }
-        if history.count > 90 { history.removeFirst(history.count - 90) }
+        if history.count > 180 { history.removeFirst(history.count - 180) }
+    }
+
+    private func updateBatteryLoadWarning(for snapshot: Snapshot) {
+        guard !snapshot.hasExternalPower, !snapshot.charging else {
+            highBatteryLoadSince = nil
+            highBatteryLoadMessage = nil
+            return
+        }
+        guard snapshot.batteryDrawWatts >= 10 else {
+            highBatteryLoadSince = nil
+            highBatteryLoadMessage = nil
+            return
+        }
+        let now = Date()
+        if highBatteryLoadSince == nil { highBatteryLoadSince = now }
+        guard let since = highBatteryLoadSince, now.timeIntervalSince(since) >= 4 else { return }
+        highBatteryLoadMessage = "High battery use · Your Mac is drawing \(formatWatts(snapshot.batteryDrawWatts)) W on battery. Check energy-heavy apps or lower display brightness to extend runtime."
     }
 
     private func addEvent(_ message: String, icon: String, tint: Color) {
@@ -394,7 +457,8 @@ struct DashboardView: View {
     @AppStorage("proMode") private var proMode = false
     @AppStorage("hideEmpty") private var hideEmpty = false
     @AppStorage("showCharts") private var showCharts = true
-    @AppStorage("refreshSeconds") private var refreshSeconds = 0.5
+    @AppStorage("refreshSeconds") private var refreshSeconds = 0.25
+    @AppStorage("refreshCadenceMigratedV103") private var refreshCadenceMigrated = false
     @AppStorage("performanceMode") private var performanceMode = false
     @AppStorage("glassIntensity") private var glassIntensity = 0.20
     @AppStorage("magsafeStatusColor") private var magsafeStatusColor = "amber"
@@ -441,9 +505,11 @@ struct DashboardView: View {
         .modifier(GlassPanel(intensity: glassIntensity))
         .animation(.snappy(duration: 0.28), value: page)
         .onAppear {
-            // Earlier releases used a two-second default. Move that default to
-            // the requested sub-second refresh while keeping custom choices.
-            if refreshSeconds == 2.0 { refreshSeconds = 0.5 }
+            // Move the old default to the fastest supported polling interval once.
+            if !refreshCadenceMigrated {
+                if refreshSeconds == 2.0 || refreshSeconds == 0.5 { refreshSeconds = 0.25 }
+                refreshCadenceMigrated = true
+            }
             monitor.performanceMode = performanceMode
             monitor.setRefreshInterval(performanceMode ? max(4, refreshSeconds) : refreshSeconds)
             quickSummary = localQuickSummary(for: monitor.current)
@@ -479,10 +545,25 @@ struct DashboardView: View {
 
     private var overview: some View {
         VStack(spacing: 13) {
+            if let message = monitor.highBatteryLoadMessage {
+                SectionCard(title: "High battery use", subtitle: "Sustained heavy draw while running on battery", icon: "battery.25percent") {
+                    Label(message, systemImage: "exclamationmark.triangle.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
             HStack(spacing: 12) {
                 MetricCard(title: "BATTERY", value: "\(Int(monitor.current.charge))%", caption: monitor.current.powerSourceLabel, icon: "battery.75percent", tint: .green)
                 MetricCard(title: "CHARGING INPUT", value: "\(formatWatts(monitor.current.inputWatts)) W", caption: monitor.current.adapterWatts > 0 ? "Adapter rated \(Int(monitor.current.adapterWatts)) W" : "No adapter", icon: "arrow.down.to.line", tint: ash)
                 MetricCard(title: "MAC DRAW", value: "\(formatWatts(monitor.current.systemLoad)) W", caption: "Live system draw", icon: "cpu", tint: .orange)
+            }
+            SectionCard(title: "Chip & power", subtitle: "\(monitor.current.chip.name) · \(monitor.current.chip.model)", icon: "cpu") {
+                DataRow(name: "Apple silicon", value: monitor.current.chip.name)
+                DataRow(name: "CPU layout", value: monitor.current.chip.coreSummary)
+                DataRow(name: "Live Mac system draw", value: "\(formatWatts(monitor.current.systemLoad)) W", accent: .orange)
+                Text("This is measured whole-Mac power. macOS does not publish a separate public watt reading for the M3 CPU, GPU, or Neural Engine.")
+                    .font(.system(size: 10)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             SectionCard(title: "Power source", subtitle: "What is powering your Mac right now", icon: monitor.current.hasExternalPower ? "powerplug.fill" : "battery.75percent") {
                 HStack(spacing: 10) {
@@ -527,12 +608,18 @@ struct DashboardView: View {
                 Text("The report updates automatically every minute using local power readings. Apple Intelligence is available on demand; no telemetry is uploaded.")
                     .font(.system(size: 10)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
-            if showCharts { SectionCard(title: "Energy trend", subtitle: "Input, system load and battery power", icon: "chart.xyaxis.line") {
+            if showCharts { SectionCard(title: "Energy trend", subtitle: "Live power-controller readings · 90-second window", icon: "chart.xyaxis.line") {
                 Chart {
                     ForEach(monitor.history) { item in
-                        AreaMark(x: .value("Time", item.time), y: .value("Watts", item.input), series: .value("Series", "Adapter input")).foregroundStyle(ash.opacity(0.12))
-                        LineMark(x: .value("Time", item.time), y: .value("Watts", item.input), series: .value("Series", "Adapter input")).foregroundStyle(ash).lineStyle(StrokeStyle(lineWidth: 2))
-                        LineMark(x: .value("Time", item.time), y: .value("Watts", item.load), series: .value("Series", "System load")).foregroundStyle(.orange).lineStyle(StrokeStyle(lineWidth: 2))
+                        AreaMark(x: .value("Time", item.time), y: .value("Watts", item.input), series: .value("Series", "Adapter input"))
+                            .interpolationMethod(.catmullRom)
+                            .foregroundStyle(ash.opacity(0.08))
+                        LineMark(x: .value("Time", item.time), y: .value("Watts", item.input), series: .value("Series", "Adapter input"))
+                            .interpolationMethod(.catmullRom).foregroundStyle(ash).lineStyle(StrokeStyle(lineWidth: 1.6, dash: [5, 4]))
+                        LineMark(x: .value("Time", item.time), y: .value("Watts", item.load), series: .value("Series", "System load"))
+                            .interpolationMethod(.catmullRom).foregroundStyle(.orange).lineStyle(StrokeStyle(lineWidth: 2.6))
+                        LineMark(x: .value("Time", item.time), y: .value("Watts", item.battery), series: .value("Series", "Battery transfer"))
+                            .interpolationMethod(.catmullRom).foregroundStyle(.green).lineStyle(StrokeStyle(lineWidth: 1.8))
                     }
                 }.chartLegend(.visible).chartYAxisLabel("W").frame(height: 150)
             } }
@@ -641,15 +728,33 @@ struct DashboardView: View {
 
     private var powerView: some View {
         VStack(spacing: 13) {
+            if let message = monitor.highBatteryLoadMessage {
+                SectionCard(title: "High battery use", subtitle: "Sustained heavy draw while running on battery", icon: "battery.25percent") {
+                    Label(message, systemImage: "exclamationmark.triangle.fill")
+                        .font(.system(size: 12, weight: .semibold)).foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
             if showCharts { SectionCard(title: "Power Monitor", subtitle: "Measured telemetry from the Mac power controller", icon: "waveform.path") {
                 Chart {
                     ForEach(monitor.history) { item in
-                        LineMark(x: .value("Time", item.time), y: .value("Input", item.input), series: .value("Power", "Adapter input")).foregroundStyle(ash)
-                        LineMark(x: .value("Time", item.time), y: .value("Load", item.load), series: .value("Power", "System load")).foregroundStyle(.orange)
-                        LineMark(x: .value("Time", item.time), y: .value("Battery", item.battery), series: .value("Power", "Battery transfer")).foregroundStyle(.green)
+                        LineMark(x: .value("Time", item.time), y: .value("Input", item.input), series: .value("Power", "Adapter input"))
+                            .interpolationMethod(.catmullRom).foregroundStyle(ash).lineStyle(StrokeStyle(lineWidth: 1.6, dash: [5, 4]))
+                        LineMark(x: .value("Time", item.time), y: .value("Load", item.load), series: .value("Power", "System load"))
+                            .interpolationMethod(.catmullRom).foregroundStyle(.orange).lineStyle(StrokeStyle(lineWidth: 2.6))
+                        LineMark(x: .value("Time", item.time), y: .value("Battery", item.battery), series: .value("Power", "Battery transfer"))
+                            .interpolationMethod(.catmullRom).foregroundStyle(.green).lineStyle(StrokeStyle(lineWidth: 1.8))
                     }
-                }.chartLegend(.visible).frame(height: 220)
+                }.chartLegend(.visible).chartYAxisLabel("W").frame(height: 220)
             } }
+            SectionCard(title: "Apple silicon power", subtitle: "\(monitor.current.chip.name) · live whole-system reading", icon: "cpu") {
+                DataRow(name: "Chip", value: monitor.current.chip.name)
+                DataRow(name: "Mac model", value: monitor.current.chip.model)
+                DataRow(name: "CPU layout", value: monitor.current.chip.coreSummary)
+                DataRow(name: "Current system draw", value: "\(formatWatts(monitor.current.systemLoad)) W", accent: .orange)
+                Text("The live watt value is for the whole Mac. macOS does not expose separate M3 CPU, GPU, or Neural Engine watts to regular apps. EveryMacTool polls the power controller every 0.25 seconds; the controller itself may publish fresh readings less often.")
+                    .font(.system(size: 10)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
             SectionCard(title: "Charging vs. drain", subtitle: "Instantaneous power; positive battery power means charging", icon: "arrow.left.arrow.right") {
                 DataRow(name: "Adapter input", value: "\(formatWatts(monitor.current.inputWatts)) W")
                 DataRow(name: "System load", value: "\(formatWatts(monitor.current.systemLoad)) W")
