@@ -23,13 +23,13 @@ struct EveryMacToolApp: App {
         MenuBarExtra {
             DashboardView(monitor: monitor)
                 .tint(ash)
-                .frame(width: 560, height: 680)
+                .frame(width: 520, height: 640)
                 .background(.ultraThinMaterial)
         } label: {
             HStack(spacing: 5) {
                 Image(systemName: menuIcon).foregroundStyle(statusColor(for: magsafeStatusColor))
-                if showWatts, monitor.current.inputWatts > 0 {
-                    Text("\(Int(monitor.current.inputWatts.rounded()))W")
+                if showWatts {
+                    Text(monitor.current.menuBarPowerLabel)
                         .font(.system(size: 12, weight: .semibold, design: .rounded))
                 }
             }
@@ -107,6 +107,22 @@ struct Snapshot {
     var totalRx = 0.0
     var totalTx = 0.0
     var updated = Date()
+
+    var hasExternalPower: Bool { adapterWatts > 0 || inputWatts > 0.1 || (charging && !adapterName.isEmpty && adapterName != "No adapter detected") }
+    var adapterKind: String {
+        guard hasExternalPower else { return "No external power" }
+        let name = adapterName.lowercased()
+        if name.contains("magsafe") { return "MagSafe charger" }
+        if name.contains("usb-c") || name.contains("usb c") { return "USB-C power adapter" }
+        return adapterWatts > 0 ? "External power adapter" : "External power · type not reported"
+    }
+    var powerSourceLabel: String {
+        guard hasExternalPower else { return "Running on battery" }
+        return charging ? "Power adapter · charging" : "Power adapter · connected"
+    }
+    var menuBarPowerLabel: String {
+        systemLoad > 0 ? "\(formatWatts(systemLoad))W" : "—W"
+    }
 }
 
 @MainActor
@@ -129,7 +145,7 @@ final class SystemMonitor: ObservableObject {
 
     init() {
         refresh()
-        timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
         }
     }
@@ -354,7 +370,7 @@ func statusColor(for value: String) -> Color {
     }
 }
 
-func formatWatts(_ n: Double) -> String { n < 10 ? String(format: "%.1f", n) : String(format: "%.0f", n) }
+func formatWatts(_ n: Double) -> String { String(format: "%.1f", n) }
 func formatRate(_ n: Double) -> String {
     if n >= 1_000_000 { return String(format: "%.1f MB/s", n / 1_000_000) }
     if n >= 1_000 { return String(format: "%.0f KB/s", n / 1_000) }
@@ -371,16 +387,16 @@ struct DashboardView: View {
     @ObservedObject var monitor: SystemMonitor
     @State private var page: Page = .overview
     @State private var showMoreAnalysis = false
-    @State private var quickSummary = "Tap below for a one-sentence read of your Mac's current power and battery status."
+    @State private var quickSummary = "Preparing a local reading of your Mac's current power and battery status…"
     @State private var writingSummary = false
     @AppStorage("showWatts") private var showWatts = true
     @AppStorage("menuIcon") private var menuIcon = "bolt.fill"
     @AppStorage("proMode") private var proMode = false
     @AppStorage("hideEmpty") private var hideEmpty = false
     @AppStorage("showCharts") private var showCharts = true
-    @AppStorage("refreshSeconds") private var refreshSeconds = 2.0
+    @AppStorage("refreshSeconds") private var refreshSeconds = 0.5
     @AppStorage("performanceMode") private var performanceMode = false
-    @AppStorage("glassIntensity") private var glassIntensity = 0.72
+    @AppStorage("glassIntensity") private var glassIntensity = 0.20
     @AppStorage("magsafeStatusColor") private var magsafeStatusColor = "amber"
 
     var body: some View {
@@ -393,10 +409,15 @@ struct DashboardView: View {
                             Image(systemName: item.icon).font(.system(size: 15, weight: .medium))
                             Text(item.rawValue).font(.system(size: 10, weight: .medium))
                         }
-                        .frame(maxWidth: .infinity).padding(.vertical, 10)
+                        .frame(maxWidth: .infinity, minHeight: 48)
                         .foregroundStyle(page == item ? ash : .secondary)
-                        .background(page == item ? ash.opacity(0.10) : .clear, in: RoundedRectangle(cornerRadius: 11))
-                    }.buttonStyle(.plain)
+                        .background(page == item ? ash.opacity(0.13) : .white.opacity(0.025), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(.white.opacity(page == item ? 0.12 : 0.055), lineWidth: 1))
+                        .contentShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Opens the \(item.rawValue) panel")
+                    .help("Open \(item.rawValue)")
                 }
             }.padding(.horizontal, 14).padding(.vertical, 8)
             Divider().opacity(0.45)
@@ -420,8 +441,21 @@ struct DashboardView: View {
         .modifier(GlassPanel(intensity: glassIntensity))
         .animation(.snappy(duration: 0.28), value: page)
         .onAppear {
+            // Earlier releases used a two-second default. Move that default to
+            // the requested sub-second refresh while keeping custom choices.
+            if refreshSeconds == 2.0 { refreshSeconds = 0.5 }
             monitor.performanceMode = performanceMode
             monitor.setRefreshInterval(performanceMode ? max(4, refreshSeconds) : refreshSeconds)
+            quickSummary = localQuickSummary(for: monitor.current)
+        }
+        .task {
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(60)) } catch { return }
+                guard !Task.isCancelled else { return }
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    quickSummary = localQuickSummary(for: monitor.current)
+                }
+            }
         }
         .onChange(of: proMode) { _, enabled in
             if !enabled && page == .diagnostics { page = .overview }
@@ -446,9 +480,23 @@ struct DashboardView: View {
     private var overview: some View {
         VStack(spacing: 13) {
             HStack(spacing: 12) {
-                MetricCard(title: "BATTERY", value: "\(Int(monitor.current.charge))%", caption: monitor.current.charging ? "Charging" : "On battery", icon: "battery.75percent", tint: .green)
+                MetricCard(title: "BATTERY", value: "\(Int(monitor.current.charge))%", caption: monitor.current.powerSourceLabel, icon: "battery.75percent", tint: .green)
                 MetricCard(title: "CHARGING INPUT", value: "\(formatWatts(monitor.current.inputWatts)) W", caption: monitor.current.adapterWatts > 0 ? "Adapter rated \(Int(monitor.current.adapterWatts)) W" : "No adapter", icon: "arrow.down.to.line", tint: ash)
-                MetricCard(title: "SYSTEM LOAD", value: "\(formatWatts(monitor.current.systemLoad)) W", caption: "Live system draw", icon: "cpu", tint: .orange)
+                MetricCard(title: "MAC DRAW", value: "\(formatWatts(monitor.current.systemLoad)) W", caption: "Live system draw", icon: "cpu", tint: .orange)
+            }
+            SectionCard(title: "Power source", subtitle: "What is powering your Mac right now", icon: monitor.current.hasExternalPower ? "powerplug.fill" : "battery.75percent") {
+                HStack(spacing: 10) {
+                    Image(systemName: monitor.current.hasExternalPower ? "powerplug.fill" : "battery.75percent")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(monitor.current.hasExternalPower ? ash : .green)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(monitor.current.powerSourceLabel).font(.system(size: 13, weight: .semibold))
+                        Text(monitor.current.hasExternalPower ? monitor.current.adapterKind : "Battery \(Int(monitor.current.charge))% · draw \(formatWatts(abs(monitor.current.batteryWatts))) W")
+                            .font(.system(size: 11, design: .rounded)).foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 4)
+                    Text(monitor.current.menuBarPowerLabel).font(.system(size: 13, weight: .bold, design: .rounded).monospacedDigit())
+                }
             }
             SectionCard(title: "Power balance", subtitle: "Live energy flow · updated at your selected interval", icon: "bolt.fill") {
                 HStack(spacing: 16) {
@@ -462,7 +510,7 @@ struct DashboardView: View {
                     Spacer(minLength: 0)
                 }
             }
-            SectionCard(title: "Quick Mac read", subtitle: "A short, on-device summary of current telemetry", icon: "apple.intelligence") {
+            SectionCard(title: "Quick Mac read", subtitle: "Local status report · refreshes every minute", icon: "apple.intelligence") {
                 Text(quickSummary)
                     .font(.system(size: 12, weight: .medium, design: .rounded))
                     .fixedSize(horizontal: false, vertical: true)
@@ -476,7 +524,7 @@ struct DashboardView: View {
                 .buttonStyle(.borderedProminent)
                 .tint(ash)
                 .disabled(writingSummary)
-                Text("Uses Apple's on-device model when available; otherwise a private local summary. No telemetry is uploaded.")
+                Text("The report updates automatically every minute using local power readings. Apple Intelligence is available on demand; no telemetry is uploaded.")
                     .font(.system(size: 10)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             if showCharts { SectionCard(title: "Energy trend", subtitle: "Input, system load and battery power", icon: "chart.xyaxis.line") {
@@ -578,8 +626,9 @@ struct DashboardView: View {
     #endif
 
     private func localQuickSummary(for reading: Snapshot) -> String {
-        if reading.charging {
-            return "Your Mac is charging at \(formatWatts(abs(reading.batteryWatts))) W while drawing \(formatWatts(reading.systemLoad)) W for system activity, with the battery at \(Int(reading.charge))%."
+        if reading.hasExternalPower {
+            let chargeState = reading.charging ? "charging" : "connected to power"
+            return "Your Mac is \(chargeState) through \(reading.adapterKind), drawing \(formatWatts(reading.systemLoad)) W with \(formatWatts(abs(reading.batteryWatts))) W battery transfer at \(Int(reading.charge))%."
         }
         return "Your Mac is running on battery at \(Int(reading.charge))%, with a current battery draw of \(formatWatts(abs(reading.batteryWatts))) W and an estimated \(reading.batteryTime)."
     }
@@ -650,8 +699,8 @@ struct DashboardView: View {
                 DataRow(name: "Adapter", value: monitor.current.adapterName)
                 DataRow(name: "Maximum rated", value: "\(Int(monitor.current.adapterWatts)) W")
                 DataRow(name: "Active contract", value: monitor.current.activeProfile)
-                ForEach(Array(monitor.current.profiles.enumerated()), id: \.offset) { index, profile in
-                    HStack { Image(systemName: index == monitor.current.negotiatedProfileIndex ? "checkmark.circle.fill" : "circle").foregroundStyle(index == monitor.current.negotiatedProfileIndex ? .green : .secondary); Text(profile).font(.system(size: 11, design: .monospaced)); Spacer() }
+                ForEach(Array(monitor.current.profiles.enumerated()), id: \.offset) { item in
+                    HStack { Image(systemName: item.offset == monitor.current.negotiatedProfileIndex ? "checkmark.circle.fill" : "circle").foregroundStyle(item.offset == monitor.current.negotiatedProfileIndex ? .green : .secondary); Text(item.element).font(.system(size: 11, design: .monospaced)); Spacer() }
                 }
             }
         }
@@ -659,6 +708,31 @@ struct DashboardView: View {
 
     private var devicesView: some View {
         VStack(spacing: 13) {
+            SectionCard(title: "MagSafe & charging adapter", subtitle: "Power details reported by your Mac", icon: "cable.connector") {
+                if !monitor.current.hasExternalPower {
+                    EmptyState(icon: "powerplug", title: "No charger connected", detail: "Connect MagSafe or USB-C power to see the adapter name and live charging details here.")
+                } else {
+                    DataRow(name: "Power source", value: monitor.current.powerSourceLabel, accent: .green)
+                    DataRow(name: "Connection type", value: monitor.current.adapterKind, accent: ash)
+                    DataRow(name: "Charger identity", value: monitor.current.adapterName)
+                    DataRow(name: "Current Mac draw", value: "\(formatWatts(monitor.current.systemLoad)) W", accent: .orange)
+                    DataRow(name: "Charging input", value: "\(formatWatts(monitor.current.inputWatts)) W", accent: ash)
+                    DataRow(name: "Battery transfer", value: "\(formatWatts(abs(monitor.current.batteryWatts))) W · \(monitor.current.charging ? "charging" : "not charging")", accent: monitor.current.charging ? .green : .secondary)
+                    DataRow(name: "Adapter rated power", value: "\(formatWatts(monitor.current.adapterWatts)) W")
+                    DataRow(name: "Negotiated profile", value: monitor.current.activeProfile)
+                    if proMode {
+                        DataRow(name: "Voltage / current", value: String(format: "%.2f V · %.2f A", monitor.current.adapterVoltage / 1000, monitor.current.adapterCurrent / 1000))
+                        if !monitor.current.profiles.isEmpty {
+                            Divider().opacity(0.4)
+                            ForEach(Array(monitor.current.profiles.enumerated()), id: \.offset) { index, profile in
+                                DataRow(name: "USB-PD profile \(index + 1)", value: profile, accent: profile == monitor.current.activeProfile ? .green : .secondary)
+                            }
+                        }
+                    }
+                    Label("Adapter type and wattage are shown when macOS reports them. Physical MagSafe LED color is controlled by macOS.", systemImage: "info.circle")
+                        .font(.system(size: 10)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true).padding(.top, 4)
+                }
+            }
             SectionCard(title: "Connected devices", subtitle: "USB devices visible to macOS · \(monitor.current.peripherals.count) found", icon: "cable.connector") {
                 if monitor.current.peripherals.isEmpty { EmptyState(icon: "cable.connector.slash", title: "Nothing connected", detail: "Plug in a USB device to see its identity and link details.") }
                 ForEach(monitor.current.peripherals) { item in
@@ -688,7 +762,7 @@ struct DashboardView: View {
             }
             SectionCard(title: "Port map", subtitle: "Ports discovered by the system", icon: "point.3.connected.trianglepath.dotted") {
                 DataRow(name: "USB devices", value: "\(monitor.current.peripherals.count) connected")
-                DataRow(name: "MagSafe / USB-C charging", value: monitor.current.adapterWatts > 0 ? "Active · \(monitor.current.adapterWatts.formatted(.number.precision(.fractionLength(0)))) W adapter" : "No external power")
+                DataRow(name: "MagSafe / USB-C charging", value: monitor.current.hasExternalPower ? "\(monitor.current.adapterKind) · \(formatWatts(monitor.current.inputWatts)) W input" : "No external power")
                 Text("Empty physical port count and per-port current are not consistently available to third-party macOS apps.").font(.system(size: 10)).foregroundStyle(.secondary).padding(.top, 5)
             }
         }
@@ -785,8 +859,8 @@ struct DashboardView: View {
                 }.buttonStyle(.borderedProminent).tint(ash)
                 Text(performanceMode ? "Using a lighter 4-second sampling cadence. This changes EveryMacTool only." : "Reduces refresh work and chart redraws if the panel feels slow. It does not alter macOS power or background apps.").font(.system(size: 10)).foregroundStyle(.secondary)
             }
-            SectionCard(title: "Liquid glass", subtitle: "Adjust the panel's frosted translucency", icon: "drop.halffull") {
-                HStack { Text("Clearer").font(.system(size: 10)).foregroundStyle(.secondary); Slider(value: $glassIntensity, in: 0.25...1.0).accessibilityLabel("Liquid glass intensity"); Text("More frosted").font(.system(size: 10)).foregroundStyle(.secondary) }
+            SectionCard(title: "Liquid glass", subtitle: "Adjust the panel's frosted translucency · default 20%", icon: "drop.halffull") {
+                HStack { Text("Clearer").font(.system(size: 10)).foregroundStyle(.secondary); Slider(value: $glassIntensity, in: 0...1.0).accessibilityLabel("Liquid glass intensity"); Text("More frosted").font(.system(size: 10)).foregroundStyle(.secondary) }
                 ZStack {
                     RoundedRectangle(cornerRadius: 13).fill(ash.opacity(0.14))
                     RoundedRectangle(cornerRadius: 13).fill(.ultraThinMaterial.opacity(glassIntensity))
@@ -805,7 +879,7 @@ struct DashboardView: View {
                 Text("This changes the icon and glow inside EveryMacTool only. macOS controls the physical MagSafe charger LED.").font(.system(size: 10)).foregroundStyle(.secondary)
             }
             SectionCard(title: "Menu bar", subtitle: "Customize the always-visible status item", icon: "menubar.rectangle") {
-                Toggle("Show charging watts", isOn: $showWatts)
+                Toggle("Show live Mac draw in the menu bar", isOn: $showWatts)
                 Picker("Icon", selection: $menuIcon) {
                     Label("Power", systemImage: "bolt.fill").tag("bolt.fill")
                     Label("Plug", systemImage: "powerplug.fill").tag("powerplug.fill")
@@ -885,7 +959,7 @@ struct SettingsView: View {
     @AppStorage("hideEmpty") private var hideEmpty = false
     var body: some View {
         Form {
-            Toggle("Show charging watts in menu bar", isOn: $showWatts)
+            Toggle("Show live Mac draw in menu bar", isOn: $showWatts)
             Picker("Interface mode", selection: $proMode) {
                 Text("Simple").tag(false)
                 Text("Pro").tag(true)

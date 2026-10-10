@@ -9,7 +9,7 @@ APP_BUNDLE="$BUILD_DIR/EveryMacTool.app"
 CONTENTS="$APP_BUNDLE/Contents"
 STAGING="$BUILD_DIR/dmg-root"
 DIST_DIR="$APP_ROOT/dist"
-DMG_PATH="$DIST_DIR/EveryMacTool-1.0.1-macOS-${ARCH}.dmg"
+DMG_PATH="$DIST_DIR/EveryMacTool-1.0.2-macOS-${ARCH}.dmg"
 
 mkdir -p "$BUILD_DIR" "$DIST_DIR"
 rm -rf "$APP_BUNDLE" "$STAGING"
@@ -27,11 +27,12 @@ func probePrivateCloudComputeAPI() {
   _ = model.isAvailable
 }
 SWIFT
-if /usr/bin/swiftc -target "${ARCH}-apple-macosx${MIN_MACOS}" -framework FoundationModels -typecheck "$PCC_PROBE" >/dev/null 2>&1; then
+if /usr/bin/swiftc -module-cache-path "$BUILD_DIR/ModuleCache" -target "${ARCH}-apple-macosx${MIN_MACOS}" -framework FoundationModels -typecheck "$PCC_PROBE" >/dev/null 2>&1; then
   PCC_FLAGS=(-D EVERYMAC_HAS_PCC)
 fi
 
 /usr/bin/swiftc -parse-as-library -warnings-as-errors -O \
+  -module-cache-path "$BUILD_DIR/ModuleCache" \
   -target "${ARCH}-apple-macosx${MIN_MACOS}" \
   ${PCC_FLAGS[@]:-} \
   -framework SwiftUI -framework AppKit -framework IOKit \
