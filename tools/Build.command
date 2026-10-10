@@ -40,14 +40,17 @@ fi
   -framework SwiftUI -framework AppKit -framework IOKit \
   -framework CoreGraphics -framework Charts -framework FoundationModels \
   "$APP_ROOT/Sources/EveryMacTool.swift" \
+  "$APP_ROOT/Sources/SMCPowerReader.swift" \
   -o "$CONTENTS/MacOS/EveryMacTool"
 cp "$APP_ROOT/Resources/Info.plist" "$CONTENTS/Info.plist"
 cp "$APP_ROOT/Resources/AppIcon.icns" "$CONTENTS/Resources/AppIcon.icns"
+cp "$APP_ROOT/THIRD_PARTY_NOTICES.md" "$CONTENTS/Resources/THIRD_PARTY_NOTICES.md"
 printf 'APPL????' > "$CONTENTS/PkgInfo"
 /usr/bin/codesign --force --deep --sign - "$APP_BUNDLE"
 /usr/bin/codesign --verify --deep --strict "$APP_BUNDLE"
 
 cp -R "$APP_BUNDLE" "$STAGING/EveryMacTool.app"
+cp "$APP_ROOT/THIRD_PARTY_NOTICES.md" "$STAGING/THIRD_PARTY_NOTICES.md"
 ln -s /Applications "$STAGING/Applications"
 rm -f "$DMG_PATH"
 /usr/bin/hdiutil create -volname "EveryMacTool" -srcfolder "$STAGING" \

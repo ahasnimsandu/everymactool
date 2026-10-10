@@ -147,6 +147,7 @@ struct Snapshot {
     var totalTx = 0.0
     var updated = Date()
     var chip = ChipProfile.current
+    var powerTelemetrySource = "AppleSmartBattery · cached fallback"
 
     var hasExternalPower: Bool { adapterWatts > 0 || inputWatts > 0.1 || (charging && !adapterName.isEmpty && adapterName != "No adapter detected") }
     var adapterKind: String {
@@ -161,7 +162,12 @@ struct Snapshot {
         return charging ? "Power adapter · charging" : "Power adapter · connected"
     }
     var menuBarPowerLabel: String {
-        systemLoad > 0 ? "\(formatWatts(systemLoad))W" : "—W"
+        let watts = livePowerWatts
+        return watts > 0 ? "\(formatWatts(watts))W" : "—W"
+    }
+    var livePowerWatts: Double { hasExternalPower && inputWatts > 0 ? inputWatts : systemLoad }
+    var livePowerDescription: String {
+        hasExternalPower ? "Adapter input · live SMC rail" : "Battery draw · live SMC rail"
     }
     var batteryDrawWatts: Double { max(systemLoad, abs(batteryWatts)) }
 }
@@ -178,6 +184,7 @@ final class SystemMonitor: ObservableObject {
     @Published var performanceMode = false
     @Published var highBatteryLoadMessage: String?
     private var timer: Timer?
+    private let smcPowerReader = SMCPowerReader()
     private var wakeRefreshTask: Task<Void, Never>?
     private var wakeObserver: NSObjectProtocol?
     private var activationObserver: NSObjectProtocol?
@@ -393,6 +400,20 @@ final class SystemMonitor: ObservableObject {
         }
         let eta = number("AvgTimeToFull")
         if eta > 0 && eta < 65535 { out.batteryTime = "~\(Int(eta / 60))h \(Int(eta) % 60)m to full" }
+
+        if out.hasExternalPower {
+            if let input = smcPowerReader.readSystemPowerInput() {
+                out.inputWatts = input.watts
+                if input.volts > 0 { out.adapterVoltage = input.volts * 1000 }
+                if input.amps > 0 { out.adapterCurrent = input.amps * 1000 }
+                out.powerTelemetrySource = "AppleSMC DC-in rail · live (~1 Hz)"
+                if !out.charging { out.systemLoad = input.watts }
+            }
+        } else if let batteryDraw = smcPowerReader.readBatteryDischargeWatts() {
+            out.batteryWatts = batteryDraw
+            out.systemLoad = batteryDraw
+            out.powerTelemetrySource = "AppleSMC battery rail · live (~1 Hz)"
+        }
     }
 
     nonisolated private static func readUSBDevices() -> [USBPeripheral] {
@@ -626,13 +647,14 @@ struct DashboardView: View {
             HStack(spacing: 12) {
                 MetricCard(title: "BATTERY", value: "\(Int(monitor.current.charge))%", caption: monitor.current.powerSourceLabel, icon: "battery.75percent", tint: .green)
                 MetricCard(title: "CHARGING INPUT", value: "\(formatWatts(monitor.current.inputWatts)) W", caption: monitor.current.adapterWatts > 0 ? "Adapter rated \(Int(monitor.current.adapterWatts)) W" : "No adapter", icon: "arrow.down.to.line", tint: ash)
-                MetricCard(title: "MAC DRAW", value: "\(formatWatts(monitor.current.systemLoad)) W", caption: "Live system draw", icon: "cpu", tint: .orange)
+                MetricCard(title: "LIVE POWER", value: "\(formatWatts(monitor.current.livePowerWatts)) W", caption: monitor.current.livePowerDescription, icon: "cpu", tint: .orange)
             }
             SectionCard(title: "Chip & power", subtitle: "\(monitor.current.chip.name) · \(monitor.current.chip.model)", icon: "cpu") {
                 DataRow(name: "Apple silicon", value: monitor.current.chip.name)
                 DataRow(name: "CPU layout", value: monitor.current.chip.coreSummary)
-                DataRow(name: "Live Mac system draw", value: "\(formatWatts(monitor.current.systemLoad)) W", accent: .orange)
-                Text("This is measured whole-Mac power. macOS does not publish a separate public watt reading for the M3 CPU, GPU, or Neural Engine.")
+                DataRow(name: "Live power at source", value: "\(formatWatts(monitor.current.livePowerWatts)) W", accent: .orange)
+                DataRow(name: "Power reading source", value: monitor.current.powerTelemetrySource)
+                Text("This is live power at the active source rail; adapter input can include battery charging. macOS does not publish a separate public watt reading for the M3 CPU, GPU, or Neural Engine.")
                     .font(.system(size: 10)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             SectionCard(title: "Power source", subtitle: "What is powering your Mac right now", icon: monitor.current.hasExternalPower ? "powerplug.fill" : "battery.75percent") {

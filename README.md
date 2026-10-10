@@ -2,7 +2,7 @@
 
 A native macOS menu bar dashboard for battery and charging telemetry, USB devices, display modes, and network traffic. Developed by **Ahas Nimsandu**.
 
-Current packaged release: **1.0.4** (macOS 26+, Apple silicon).
+Current packaged release: **1.0.5** (macOS 26+, Apple silicon).
 
 See the [release notes](CHANGELOG.md).
 
@@ -19,6 +19,7 @@ See the [release notes](CHANGELOG.md).
 - Menu bar popover with native macOS transitions and liquid glass on macOS 26+.
 - Decimal Mac power draw in the menu bar (for example, 7.2 W) with a 0.25-second poll; power-source and MagSafe/USB-C adapter details are called out in Overview and Devices.
 - Smooth 90-second energy trends sampled twice per second, plus a sustained high-battery-use warning.
+- Prefer the faster AppleSMC battery/discharger and DC-in rails (reported around once per second on supported Apple silicon) over stale battery-gauge watt values, with a fallback when SMC keys are unavailable.
 - Apple silicon chip identification and CPU-core layout alongside live whole-Mac power. macOS does not publish separate CPU, GPU, or Neural Engine watt readings to regular apps.
 - A local Mac status sentence refreshes automatically every minute, without sending telemetry to a cloud service.
 - Compact dashboard with larger, clearly boxed navigation controls.

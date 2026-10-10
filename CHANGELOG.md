@@ -1,5 +1,11 @@
 # Release notes
 
+## 1.0.5 — 2026-10-10
+
+- Read live AppleSMC power rails for battery discharge and adapter input instead of relying only on AppleSmartBattery's stale watt values.
+- Keep AppleSmartBattery as a safe fallback when SMC readings are unavailable, and identify the active power-reading source in the dashboard.
+- Adapted the read-only SMC reader from WhatCable under its MIT license; see `THIRD_PARTY_NOTICES.md`.
+
 ## 1.0.4 — 2026-10-10
 
 - Fix Performance mode forcing power readings to a 4-second interval; selected 250 ms power polling now remains fast in either mode.
