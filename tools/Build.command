@@ -51,4 +51,5 @@ rm -f "$DMG_PATH"
 /usr/bin/hdiutil create -volname "EveryMacTool" -srcfolder "$STAGING" \
   -format UDZO -imagekey zlib-level=9 -ov "$DMG_PATH"
 /usr/bin/hdiutil verify "$DMG_PATH"
+rm -rf "$STAGING"
 printf '\nBuilt app: %s\nInstaller: %s\n' "$APP_BUNDLE" "$DMG_PATH"
