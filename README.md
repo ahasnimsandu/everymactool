@@ -2,7 +2,7 @@
 
 A native macOS menu bar dashboard for battery and charging telemetry, USB devices, display modes, and network traffic. Developed by **Ahas Nimsandu**.
 
-Current packaged release: **1.0.3** (macOS 26+, Apple silicon).
+Current packaged release: **1.0.4** (macOS 26+, Apple silicon).
 
 See the [release notes](CHANGELOG.md).
 
@@ -35,4 +35,4 @@ Requirements: macOS 26 or later, Swift compiler, and `hdiutil` (included with ma
 
 This creates `build/EveryMacTool.app` and a drag-to-Applications disk image in `dist/`. The app is built for the current Mac architecture and requires macOS 26 or later. Apple Intelligence summaries use Apple's on-device Foundation Models when available; an offline local sentence is shown when the model is unavailable. The current installer was built with the macOS 26.2 SDK, which does not expose Apple's Private Cloud Compute model API. Enabling that Apple cloud fallback requires a macOS 27 SDK and Apple's managed Private Cloud Compute entitlement. The bundle is ad-hoc signed because this Mac has no Apple Developer ID signing identity installed; Gatekeeper may require manual approval on first launch. The physical MagSafe LED is controlled by macOS and cannot be changed from this app; the selectable color only affects EveryMacTool.
 
-Open the app, then click the bolt/watt item in the menu bar. Use the panel's Settings page to switch Simple/Pro, adjust the glass effect, or enable dashboard performance mode. Performance mode reduces EveryMacTool's sampling frequency; it does not modify macOS power settings or other apps. EveryMacTool polls power data every 0.25 seconds by default; macOS may publish new hardware telemetry less often. USB/display inventory remains on a slower scan, and macOS telemetry may not expose a valid watt reading on every Mac at every instant.
+Open the app, then click the bolt/watt item in the menu bar. Use the panel's Settings page to switch Simple/Pro, adjust the glass effect, or enable dashboard performance mode. Performance mode reduces chart and device-scan work while keeping power reads at the selected interval. EveryMacTool polls power data every 0.25 seconds by default; macOS may publish new hardware telemetry less often. It refreshes as the Mac wakes and when the panel opens. USB/display inventory remains on a slower scan, and macOS telemetry may not expose a valid watt reading on every Mac at every instant.

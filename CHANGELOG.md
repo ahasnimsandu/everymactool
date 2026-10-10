@@ -1,5 +1,12 @@
 # Release notes
 
+## 1.0.4 — 2026-10-10
+
+- Fix Performance mode forcing power readings to a 4-second interval; selected 250 ms power polling now remains fast in either mode.
+- Refresh telemetry immediately when the Mac wakes, the app activates, and the menu panel opens, then retry briefly while macOS restores its sensor values.
+- Keep slower device/display scans and chart updates separate from power sampling, and show the age of the latest sample in the panel header.
+- Keep Apple Intelligence out of the measurement path; it only writes the optional plain-language summary from local readings.
+
 ## 1.0.3 — 2026-10-10
 
 - Poll power data every 0.25 seconds and update the menu-bar number with smooth digit transitions. macOS hardware telemetry may still publish at a slower cadence.

@@ -91,7 +91,7 @@ struct PowerReading: Identifiable {
     let tx: Double
 }
 
-struct USBPeripheral: Identifiable {
+struct USBPeripheral: Identifiable, Sendable {
     let id: String
     let name: String
     let vendor: String
@@ -100,7 +100,7 @@ struct USBPeripheral: Identifiable {
     let location: String
 }
 
-struct DisplayInfo: Identifiable {
+struct DisplayInfo: Identifiable, Sendable {
     let id: UInt32
     let name: String
     let resolution: String
@@ -178,6 +178,9 @@ final class SystemMonitor: ObservableObject {
     @Published var performanceMode = false
     @Published var highBatteryLoadMessage: String?
     private var timer: Timer?
+    private var wakeRefreshTask: Task<Void, Never>?
+    private var wakeObserver: NSObjectProtocol?
+    private var activationObserver: NSObjectProtocol?
     private var highBatteryLoadSince: Date?
     private var previousNetwork: [String: (UInt64, UInt64)] = [:]
     private var lastTick = Date()
@@ -185,10 +188,32 @@ final class SystemMonitor: ObservableObject {
     private var lastHardwareScan = Date.distantPast
     private var lastHistorySample = Date.distantPast
     private var hasInitialSample = false
+    private var hardwareScanInFlight = false
 
     init() {
         refresh()
         setRefreshInterval(0.25)
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.refreshAfterWake() }
+        }
+        activationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.refreshAfterWake() }
+        }
+    }
+
+    deinit {
+        timer?.invalidate()
+        wakeRefreshTask?.cancel()
+        if let wakeObserver { NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver) }
+        if let activationObserver { NotificationCenter.default.removeObserver(activationObserver) }
     }
 
     func setRefreshInterval(_ seconds: Double) {
@@ -201,18 +226,26 @@ final class SystemMonitor: ObservableObject {
         timer = newTimer
     }
 
+    func refreshAfterWake() {
+        lastTick = Date()
+        lastEnergyTick = Date()
+        refresh()
+        wakeRefreshTask?.cancel()
+        wakeRefreshTask = Task { @MainActor [weak self] in
+            for delay in [0.35, 0.8, 1.6, 3.2] {
+                do { try await Task.sleep(for: .seconds(delay)) } catch { return }
+                guard !Task.isCancelled else { return }
+                self?.refresh()
+            }
+        }
+    }
+
     func refresh() {
         var snapshot = Snapshot()
         snapshot.updated = Date()
         readBattery(&snapshot)
-        if Date().timeIntervalSince(lastHardwareScan) >= 5 {
-            snapshot.peripherals = readUSBDevices()
-            snapshot.displays = readDisplays()
-            lastHardwareScan = Date()
-        } else {
-            snapshot.peripherals = current.peripherals
-            snapshot.displays = current.displays
-        }
+        snapshot.peripherals = current.peripherals
+        snapshot.displays = current.displays
         snapshot.network = readNetwork()
         snapshot.totalRx = snapshot.network.reduce(0) { $0 + $1.received }
         snapshot.totalTx = snapshot.network.reduce(0) { $0 + $1.sent }
@@ -237,6 +270,7 @@ final class SystemMonitor: ObservableObject {
             hasInitialSample = true
         }
         current = snapshot
+        scheduleHardwareScanIfNeeded()
         updateBatteryLoadWarning(for: snapshot)
         let remain = snapshot.inputWatts - snapshot.systemLoad
         let balance = snapshot.charging ? "Charging · +\(formatWatts(max(0, snapshot.batteryWatts))) W" : (snapshot.charge > 0 ? "Battery · −\(formatWatts(abs(snapshot.batteryWatts))) W" : "Power source unavailable")
@@ -264,6 +298,26 @@ final class SystemMonitor: ObservableObject {
         if highBatteryLoadSince == nil { highBatteryLoadSince = now }
         guard let since = highBatteryLoadSince, now.timeIntervalSince(since) >= 4 else { return }
         highBatteryLoadMessage = "High battery use · Your Mac is drawing \(formatWatts(snapshot.batteryDrawWatts)) W on battery. Check energy-heavy apps or lower display brightness to extend runtime."
+    }
+
+    private func scheduleHardwareScanIfNeeded() {
+        let interval = performanceMode ? 15.0 : 5.0
+        guard !hardwareScanInFlight, Date().timeIntervalSince(lastHardwareScan) >= interval else { return }
+        hardwareScanInFlight = true
+        Task.detached(priority: .utility) { [weak self] in
+            let peripherals = SystemMonitor.readUSBDevices()
+            let displays = SystemMonitor.readDisplays()
+            await self?.applyHardwareScan(peripherals: peripherals, displays: displays)
+        }
+    }
+
+    private func applyHardwareScan(peripherals: [USBPeripheral], displays: [DisplayInfo]) {
+        var updated = current
+        updated.peripherals = peripherals
+        updated.displays = displays
+        current = updated
+        lastHardwareScan = Date()
+        hardwareScanInFlight = false
     }
 
     private func addEvent(_ message: String, icon: String, tint: Color) {
@@ -341,7 +395,7 @@ final class SystemMonitor: ObservableObject {
         if eta > 0 && eta < 65535 { out.batteryTime = "~\(Int(eta / 60))h \(Int(eta) % 60)m to full" }
     }
 
-    private func readUSBDevices() -> [USBPeripheral] {
+    nonisolated private static func readUSBDevices() -> [USBPeripheral] {
         var result: [USBPeripheral] = []
         for className in ["IOUSBHostDevice", "IOUSBDevice"] {
             let matching = IOServiceMatching(className)
@@ -367,7 +421,7 @@ final class SystemMonitor: ObservableObject {
         return result.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
-    private func readDisplays() -> [DisplayInfo] {
+    nonisolated private static func readDisplays() -> [DisplayInfo] {
         var ids = [CGDirectDisplayID](repeating: 0, count: 16); var count: UInt32 = 0
         guard CGGetOnlineDisplayList(16, &ids, &count) == .success else { return [] }
         return ids.prefix(Int(count)).map { id in
@@ -424,6 +478,12 @@ func formatInterval(_ seconds: Double) -> String {
     return "\(value) sec"
 }
 
+func formatAge(_ seconds: Double) -> String {
+    guard seconds.isFinite else { return "—" }
+    if seconds < 10 { return String(format: "%.1fs", max(0, seconds)) }
+    return String(format: "%.0fs", seconds)
+}
+
 func statusColor(for value: String) -> Color {
     switch value {
     case "green": .green
@@ -459,6 +519,7 @@ struct DashboardView: View {
     @AppStorage("showCharts") private var showCharts = true
     @AppStorage("refreshSeconds") private var refreshSeconds = 0.25
     @AppStorage("refreshCadenceMigratedV103") private var refreshCadenceMigrated = false
+    @AppStorage("refreshCadenceMigratedV104") private var refreshCadenceMigratedV104 = false
     @AppStorage("performanceMode") private var performanceMode = false
     @AppStorage("glassIntensity") private var glassIntensity = 0.20
     @AppStorage("magsafeStatusColor") private var magsafeStatusColor = "amber"
@@ -510,8 +571,14 @@ struct DashboardView: View {
                 if refreshSeconds == 2.0 || refreshSeconds == 0.5 { refreshSeconds = 0.25 }
                 refreshCadenceMigrated = true
             }
+            if !refreshCadenceMigratedV104 {
+                // v1.0.3's Optimize button accidentally saved 4 seconds as the requested poll rate.
+                if performanceMode && refreshSeconds >= 4 { refreshSeconds = 0.25 }
+                refreshCadenceMigratedV104 = true
+            }
             monitor.performanceMode = performanceMode
-            monitor.setRefreshInterval(performanceMode ? max(4, refreshSeconds) : refreshSeconds)
+            monitor.setRefreshInterval(refreshSeconds)
+            monitor.refreshAfterWake()
             quickSummary = localQuickSummary(for: monitor.current)
         }
         .task {
@@ -538,7 +605,10 @@ struct DashboardView: View {
             }
             Spacer()
             Circle().fill(.green).frame(width: 7, height: 7).shadow(color: .green.opacity(0.7), radius: 5).symbolEffect(.pulse, options: .repeating)
-            Text("LIVE").font(.system(size: 10, weight: .bold, design: .rounded)).foregroundStyle(.green)
+            Text("LIVE · \(formatAge(Date().timeIntervalSince(monitor.current.updated)))")
+                .font(.system(size: 9, weight: .bold, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(.green)
             Button { NSApp.terminate(nil) } label: { Image(systemName: "xmark.circle.fill").font(.system(size: 17)).foregroundStyle(.secondary) }.buttonStyle(.plain).help("Quit EveryMacTool")
         }.padding(.horizontal, 19).padding(.vertical, 14)
     }
@@ -945,24 +1015,21 @@ struct DashboardView: View {
                 }
                 Toggle("Show charts", isOn: $showCharts)
                 Toggle("Hide inactive network interfaces", isOn: $hideEmpty)
-                VStack(alignment: .leading) { HStack { Text("Refresh interval"); Spacer(); Text(formatInterval(performanceMode ? max(4, refreshSeconds) : refreshSeconds)).foregroundStyle(.secondary) }; Slider(value: $refreshSeconds, in: 0.25...10, step: 0.25).onChange(of: refreshSeconds) { _, value in monitor.setRefreshInterval(performanceMode ? max(4, value) : value) } }
+                VStack(alignment: .leading) { HStack { Text("Power refresh interval"); Spacer(); Text(formatInterval(refreshSeconds)).foregroundStyle(.secondary) }; Slider(value: $refreshSeconds, in: 0.25...10, step: 0.25).onChange(of: refreshSeconds) { _, value in monitor.setRefreshInterval(value) } }
             }
             SectionCard(title: "Performance", subtitle: "Keep the panel responsive on busy Macs", icon: "speedometer") {
                 Toggle("Performance mode", isOn: $performanceMode)
                     .onChange(of: performanceMode) { _, enabled in
                         monitor.performanceMode = enabled
-                        monitor.setRefreshInterval(enabled ? max(4, refreshSeconds) : refreshSeconds)
                     }
                 Button {
                     performanceMode = true
                     monitor.performanceMode = true
-                    refreshSeconds = max(4, refreshSeconds)
-                    monitor.setRefreshInterval(refreshSeconds)
                 } label: {
                     Label("Optimize dashboard now", systemImage: "wand.and.stars")
                         .frame(maxWidth: .infinity)
                 }.buttonStyle(.borderedProminent).tint(ash)
-                Text(performanceMode ? "Using a lighter 4-second sampling cadence. This changes EveryMacTool only." : "Reduces refresh work and chart redraws if the panel feels slow. It does not alter macOS power or background apps.").font(.system(size: 10)).foregroundStyle(.secondary)
+                Text(performanceMode ? "Power readings stay on your selected interval. Device scans and chart updates are reduced to keep the panel responsive." : "Reduces background detail scans and chart redraws if the panel feels slow. It does not alter macOS power or background apps.").font(.system(size: 10)).foregroundStyle(.secondary)
             }
             SectionCard(title: "Liquid glass", subtitle: "Adjust the panel's frosted translucency · default 20%", icon: "drop.halffull") {
                 HStack { Text("Clearer").font(.system(size: 10)).foregroundStyle(.secondary); Slider(value: $glassIntensity, in: 0...1.0).accessibilityLabel("Liquid glass intensity"); Text("More frosted").font(.system(size: 10)).foregroundStyle(.secondary) }
